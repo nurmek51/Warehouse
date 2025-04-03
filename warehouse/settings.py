@@ -40,7 +40,12 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'backend',
+    'rest_framework',
+    'rest_framework_simplejwt',
+    'accounts',
+    'warehouse_app',
+    'store',
+    'prediction',
 ]
 
 MIDDLEWARE = [
@@ -70,6 +75,14 @@ TEMPLATES = [
     },
 ]
 
+AUTH_USER_MODEL = 'accounts.User'
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ),
+}
+
 WSGI_APPLICATION = 'warehouse.wsgi.application'
 
 
@@ -84,6 +97,9 @@ DATABASES = {
         'USER': os.getenv('DB_USER'),
         'PORT': os.getenv('DB_PORT'),
         'HOST': os.getenv('DB_HOST'),
+        'OPTIONS': {
+            'client_encoding': 'UTF8',
+        },
     }
 }
 
