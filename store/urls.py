@@ -1,6 +1,8 @@
 from django.urls import path
-from django.views import View
+from .views import StoreItemListView, DiscountView, RemoveExpiredView
 
 urlpatterns = [
-    path('', View.as_view(), name=''),
+    path('items', StoreItemListView.as_view(), name='store-items'),
+    path('discount', DiscountView.as_view(), name='apply-discount'),
+    path('remove', RemoveExpiredView.as_view(), name='remove-item'),
 ]
