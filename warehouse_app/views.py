@@ -5,10 +5,15 @@ from rest_framework.permissions import IsAuthenticated
 from django.core.files.storage import default_storage
 from django.utils import timezone
 from datetime import timedelta
+from datetime import datetime
 import pandas as pd
+from .models import Upload
+from store.models import StoreItem
+from .serializers import UploadSerializer
+from store.serializers import StoreItemSerializer
+import logging
+logger = logging.getLogger(__name__)
 
-from .models import Upload, WarehouseItem
-from .serializers import UploadSerializer, WarehouseItemSerializer
 
 
 class FileUploadView(APIView):
@@ -18,32 +23,42 @@ class FileUploadView(APIView):
         file_obj = request.FILES.get('file')
         if not file_obj:
             return Response({"error": "No file provided"}, status=status.HTTP_400_BAD_REQUEST)
-
         file_path = default_storage.save(file_obj.name, file_obj)
+        file_name = file_obj.name.lower().strip()
         try:
-            if file_obj.name.endswith('.csv'):
-                df = pd.read_csv(default_storage.path(file_path))
-            elif file_obj.name.endswith(('.xls', '.xlsx')):
+            if file_name.endswith('.csv'):
+                df = pd.read_csv(default_storage.path(file_path), encoding='utf-8-sig')
+            elif file_name.endswith(('.xls', '.xlsx')):
                 df = pd.read_excel(default_storage.path(file_path))
             else:
                 return Response({"error": "Unsupported file format"}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
         upload = Upload.objects.create(file_name=file_obj.name, uploaded_by=request.user)
         count = 0
-        for _, row in df.iterrows():
+        for index, row in df.iterrows():
             try:
-                WarehouseItem.objects.create(
-                    upload=upload,
-                    name=row.get('name'),
-                    category=row.get('category'),
-                    quantity=row.get('quantity'),
-                    expire_date=row.get('expire_date'),
-                    cost=row.get('cost'),
+                name = row.get('name')
+                category = row.get('category')
+                quantity = int(row.get('quantity'))
+                price_val = row.get('price')
+                price = float(price_val) if price_val is not None else None
+                expire_date_str = row.get('expire_date')
+                expire_date = datetime.strptime(expire_date_str, '%Y-%m-%d').date() if expire_date_str else None
+                barcode = row.get('barcode')
+                StoreItem.objects.create(
+                    name=name,
+                    category=category,
+                    quantity=quantity,
+                    price=price,
+                    expire_date=expire_date,
+                    status='warehouse',
+                    barcode=barcode,
+                    warehouse_upload=upload
                 )
                 count += 1
             except Exception as e:
+                logger.error("Ошибка при импорте строки %s: %s", index, e)
                 continue
         return Response({"imported": count}, status=status.HTTP_201_CREATED)
 
@@ -61,36 +76,62 @@ class WarehouseItemsView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, file_id):
-        items = WarehouseItem.objects.filter(upload_id=file_id)
-        serializer = WarehouseItemSerializer(items, many=True)
+        items = StoreItem.objects.filter(warehouse_upload_id=file_id, status='warehouse')
+        serializer = StoreItemSerializer(items, many=True)
         return Response(serializer.data)
-
 
 class TransferToStoreView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        item_id = request.data.get('itemId')
-        quantity = request.data.get('quantity')
-        if not item_id or not quantity:
-            return Response({"error": "itemId and quantity are required"}, status=status.HTTP_400_BAD_REQUEST)
+        product_id = request.data.get('productId')
+        transfer_quantity = request.data.get('quantity')
+        if not product_id or not transfer_quantity:
+            return Response({"error": "productId and quantity are required"}, status=status.HTTP_400_BAD_REQUEST)
+
         try:
-            item = WarehouseItem.objects.get(id=item_id)
-        except WarehouseItem.DoesNotExist:
-            return Response({"error": "Item not found"}, status=status.HTTP_404_NOT_FOUND)
-        if item.quantity < int(quantity):
-            return Response({"error": "Insufficient quantity"}, status=status.HTTP_400_BAD_REQUEST)
-        item.quantity -= int(quantity)
-        item.save()
-        return Response({"message": "Item moved to store"}, status=status.HTTP_200_OK)
+            transfer_quantity = int(transfer_quantity)
+            product = StoreItem.objects.get(id=product_id)
+        except StoreItem.DoesNotExist:
+            return Response({"error": "Product not found"}, status=status.HTTP_404_NOT_FOUND)
+        except ValueError:
+            return Response({"error": "Invalid quantity"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if product.status != 'warehouse':
+            return Response({"error": "Product is not on warehouse"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if product.quantity < transfer_quantity:
+            return Response({"error": "Insufficient quantity on warehouse"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if product.quantity == transfer_quantity:
+            product.status = 'showcase'
+            product.save()
+            return Response({"message": "Product moved to store"}, status=status.HTTP_200_OK)
+        else:
+            product.quantity -= transfer_quantity
+            product.save()
+            new_product = StoreItem.objects.create(
+                name=product.name,
+                category=product.category,
+                quantity=transfer_quantity,
+                price=product.price,
+                expire_date=product.expire_date,
+                status='showcase',
+                barcode=product.barcode,
+                warehouse_upload=product.warehouse_upload
+            )
+            serializer = StoreItemSerializer(new_product)
+            return Response({"message": "Product transferred to store", "store_item": serializer.data},
+                            status=status.HTTP_200_OK)
 
 
 class ExpiringItemsView(APIView):
     permission_classes = [IsAuthenticated]
+
     def get(self, request):
         threshold_days = int(request.query_params.get('days', 7))
         today = timezone.now().date()
         threshold_date = today + timedelta(days=threshold_days)
-        items = WarehouseItem.objects.filter(expire_date__lte=threshold_date)
-        serializer = WarehouseItemSerializer(items, many=True)
+        items = StoreItem.objects.filter(expire_date__lte=threshold_date)
+        serializer = StoreItemSerializer(items, many=True)
         return Response(serializer.data)
