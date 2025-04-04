@@ -1,7 +1,6 @@
 from rest_framework import serializers
 from .models import User
-import uuid
-
+import random
 
 class RegisterSerializer(serializers.ModelSerializer):
     class Meta:
@@ -19,7 +18,7 @@ class RegisterSerializer(serializers.ModelSerializer):
             is_verified=False
         )
         user.set_password(validated_data['password'])
-        user.verification_code = str(uuid.uuid4())
+        user.verification_code = str(random.randint(10000, 99999))
         user.save()
         return user
 
