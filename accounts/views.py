@@ -5,14 +5,24 @@ from .serializers import RegisterSerializer, VerifySerializer, LoginSerializer
 from django.contrib.auth import authenticate
 from rest_framework_simplejwt.tokens import RefreshToken
 from .models import User
+from django.core.mail import send_mail
+import uuid
 
 class RegisterView(APIView):
     def post(self, request):
         serializer = RegisterSerializer(data=request.data)
         if serializer.is_valid():
-            serializer.save()
-            return Response({"message": "Registration successful"}, status=status.HTTP_201_CREATED)
+            user = serializer.save()
+            send_mail(
+                subject='Email Verification',
+                message=f'Your verification code: {user.verification_code}',
+                from_email='nurmeksdu@gmail.com',
+                recipient_list=[user.email],
+                fail_silently=False,
+            )
+            return Response({"message": "Registration successful, verification email sent"}, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 
 class VerifyView(APIView):
     def post(self, request):
@@ -46,3 +56,26 @@ class LoginView(APIView):
             else:
                 return Response({"error": "Invalid credentials"}, status=status.HTTP_400_BAD_REQUEST)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ResendVerificationView(APIView):
+    def post(self, request):
+        email = request.data.get('email')
+        if not email:
+            return Response({'error': 'Email is required'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            return Response({'error': 'User does not exist'}, status=status.HTTP_404_NOT_FOUND)
+        if user.is_verified:
+            return Response({'message': 'Email already verified'}, status=status.HTTP_400_BAD_REQUEST)
+        user.verification_code = str(uuid.uuid4())
+        user.save()
+        send_mail(
+            subject='Resend Email Verification',
+            message=f'New verification code: {user.verification_code}',
+            from_email='nurmeksdu@gmail.com',
+            recipient_list=[user.email],
+            fail_silently=False,
+        )
+        return Response({'message': 'Verification email sent'}, status=status.HTTP_200_OK)
