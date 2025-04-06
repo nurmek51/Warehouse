@@ -7,6 +7,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from .models import User
 from django.core.mail import send_mail
 import uuid
+import random
 
 class RegisterView(APIView):
     def post(self, request):
@@ -62,20 +63,20 @@ class ResendVerificationView(APIView):
     def post(self, request):
         email = request.data.get('email')
         if not email:
-            return Response({'error': 'Email is required'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": "Email is required"}, status=status.HTTP_400_BAD_REQUEST)
         try:
             user = User.objects.get(email=email)
         except User.DoesNotExist:
-            return Response({'error': 'User does not exist'}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
         if user.is_verified:
-            return Response({'message': 'Email already verified'}, status=status.HTTP_400_BAD_REQUEST)
-        user.verification_code = str(uuid.uuid4())
+            return Response({"message": "Email already verified"}, status=status.HTTP_400_BAD_REQUEST)
+        user.verification_code = str(random.randint(10000, 99999))
         user.save()
         send_mail(
             subject='Resend Email Verification',
-            message=f'New verification code: {user.verification_code}',
+            message=f'Your new verification code: {user.verification_code}',
             from_email='nurmeksdu@gmail.com',
             recipient_list=[user.email],
             fail_silently=False,
         )
-        return Response({'message': 'Verification email sent'}, status=status.HTTP_200_OK)
+        return Response({"message": "Verification email resent"}, status=status.HTTP_200_OK)
