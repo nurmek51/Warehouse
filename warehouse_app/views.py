@@ -15,7 +15,6 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-
 class FileUploadView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -34,7 +33,14 @@ class FileUploadView(APIView):
                 return Response({"error": "Unsupported file format"}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        if 'barcode' in df.columns:
+            df = df.drop(columns=['barcode'])
+
         upload = Upload.objects.create(file_name=file_obj.name, uploaded_by=request.user)
+        if request.user.role != 'manager':
+            request.user.role = 'manager'
+            request.user.save()
         count = 0
         for index, row in df.iterrows():
             try:
@@ -45,7 +51,6 @@ class FileUploadView(APIView):
                 price = float(price_val) if price_val is not None else None
                 expire_date_str = row.get('expire_date')
                 expire_date = datetime.strptime(expire_date_str, '%Y-%m-%d').date() if expire_date_str else None
-                barcode = row.get('barcode')
                 StoreItem.objects.create(
                     name=name,
                     category=category,
@@ -53,7 +58,7 @@ class FileUploadView(APIView):
                     price=price,
                     expire_date=expire_date,
                     status='warehouse',
-                    barcode=barcode,
+                    barcode=None,
                     warehouse_upload=upload
                 )
                 count += 1
@@ -106,7 +111,7 @@ class TransferToStoreView(APIView):
         if product.quantity == transfer_quantity:
             product.status = 'showcase'
             product.save()
-            return Response({"message": "Product moved to store"}, status=status.HTTP_200_OK)
+            return Response({"message": "Product moved to showcase"}, status=status.HTTP_200_OK)
         else:
             product.quantity -= transfer_quantity
             product.save()
@@ -121,7 +126,7 @@ class TransferToStoreView(APIView):
                 warehouse_upload=product.warehouse_upload
             )
             serializer = StoreItemSerializer(new_product)
-            return Response({"message": "Product transferred to store", "store_item": serializer.data},
+            return Response({"message": "Product transferred to showcase", "store_item": serializer.data},
                             status=status.HTTP_200_OK)
 
 
