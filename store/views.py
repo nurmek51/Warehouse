@@ -5,6 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from .models import StoreItem
 from .serializers import StoreItemSerializer
 from accounts.permissions import IsManager
+from decimal import Decimal
 
 class StoreItemListView(APIView):
     permission_classes = [IsAuthenticated, IsManager]
@@ -32,9 +33,9 @@ class DiscountView(APIView):
                 {"error": "Item not found"},
                 status=status.HTTP_404_NOT_FOUND
             )
-        if item.status != "витрине":
+        if item.status != "showcase":
             return Response(
-                {"error": "Discount can only be applied to items on display (витрине)"},
+                {"error": "Discount can only be applied to items on showcase."},
                 status=status.HTTP_400_BAD_REQUEST
             )
         if item.price is None:
@@ -42,7 +43,7 @@ class DiscountView(APIView):
                 {"error": "Item price is not set"},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        item.price = item.price * (1 - float(discount_percentage) / 100)
+        item.price = item.price * (Decimal('1') - Decimal(discount_percentage) / Decimal('100'))
         item.save()
         return Response(
             {"message": "Discount applied"},
@@ -171,6 +172,7 @@ class ScanBarcodeView(APIView):
             return Response({"error": "Product not found"}, status=status.HTTP_404_NOT_FOUND)
 
         data = {
+            "id": product.id,
             "name": product.name,
             "category": product.category,
             "quantity": product.quantity,

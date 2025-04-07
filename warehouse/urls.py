@@ -22,5 +22,5 @@ urlpatterns = [
     path('api/auth/', include('accounts.urls')),
     path('api/warehouse/', include('warehouse_app.urls')),
     path('api/store/', include('store.urls')),
-    path('api/prediction/', include('prediction.urls')),
+    path('api/forecast/', include('prediction.urls')),
 ]

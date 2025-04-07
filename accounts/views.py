@@ -6,7 +6,6 @@ from django.contrib.auth import authenticate
 from rest_framework_simplejwt.tokens import RefreshToken
 from .models import User
 from django.core.mail import send_mail
-import uuid
 import random
 
 class RegisterView(APIView):
@@ -23,7 +22,6 @@ class RegisterView(APIView):
             )
             return Response({"message": "Registration successful, verification email sent"}, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
 
 class VerifyView(APIView):
     def post(self, request):
@@ -58,7 +56,6 @@ class LoginView(APIView):
                 return Response({"error": "Invalid credentials"}, status=status.HTTP_400_BAD_REQUEST)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-
 class ResendVerificationView(APIView):
     def post(self, request):
         email = request.data.get('email')
@@ -75,8 +72,47 @@ class ResendVerificationView(APIView):
         send_mail(
             subject='Resend Email Verification',
             message=f'Your new verification code: {user.verification_code}',
-            from_email='nurmeksdu@gmail.com',
+            from_email='maxssatul2007@gmail.com',
             recipient_list=[user.email],
             fail_silently=False,
         )
         return Response({"message": "Verification email resent"}, status=status.HTTP_200_OK)
+
+class ForgotPasswordView(APIView):
+    def post(self, request):
+        email = request.data.get('email')
+        if not email:
+            return Response({"error": "Email is required"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+        reset_code = str(random.randint(10000, 99999))
+        user.verification_code = reset_code
+        user.save()
+        send_mail(
+            subject='Password Reset Code',
+            message=f'Your password reset code: {reset_code}',
+            from_email='maxsatul2007@gmail.com',
+            recipient_list=[user.email],
+            fail_silently=False,
+        )
+        return Response({"message": "Password reset code sent"}, status=status.HTTP_200_OK)
+
+class ResetPasswordView(APIView):
+    def post(self, request):
+        email = request.data.get('email')
+        reset_code = request.data.get('reset_code')
+        new_password = request.data.get('new_password')
+        if not email or not reset_code or not new_password:
+            return Response({"error": "Email, reset_code, and new_password are required"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+        if user.verification_code != reset_code:
+            return Response({"error": "Invalid reset code"}, status=status.HTTP_400_BAD_REQUEST)
+        user.set_password(new_password)
+        user.verification_code = ''
+        user.save()
+        return Response({"message": "Password reset successful"}, status=status.HTTP_200_OK)

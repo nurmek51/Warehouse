@@ -1,6 +1,6 @@
 from django.urls import path
-from .views import PredictionView
+from .views import ForecastResultView
 
 urlpatterns = [
-    path('<int:item_id>', PredictionView.as_view(), name='prediction'),
+    path('result', ForecastResultView.as_view(), name='forecast-result'),
 ]
