@@ -16,6 +16,7 @@ import logging
 from rest_framework.parsers import MultiPartParser
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
+from uuid import uuid4
 import re
 
 logger = logging.getLogger(__name__)
@@ -82,7 +83,10 @@ class FileUploadView(APIView):
         if not file_obj:
             return Response({"error": "No file provided"}, status=status.HTTP_400_BAD_REQUEST)
 
-        file_path = default_storage.save(file_obj.name, file_obj)
+        file_path = default_storage.save(
+            f"uploads/{uuid4()}_{file_obj.name}",
+            file_obj
+        )
         try:
             if file_obj.name.lower().endswith(".csv"):
                 df = pd.read_csv(default_storage.path(file_path), encoding="utf-8-sig")
@@ -117,7 +121,7 @@ class FileUploadView(APIView):
             except Exception as exc:
                 logger.error("Ошибка при импорте строки %s: %s", idx, exc)
                 continue
-
+        default_storage.delete(file_path)
         return Response({"imported": imported}, status=status.HTTP_201_CREATED)
 
 
