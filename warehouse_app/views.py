@@ -178,33 +178,23 @@ class TransferToStoreView(APIView):
         transfer_quantity = request.data.get("quantity")
 
         if not product_id or transfer_quantity is None:
-            return Response(
-                {"error": "productId and quantity are required"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return Response({"error": "productId and quantity are required"},
+                            status=status.HTTP_400_BAD_REQUEST)
 
         try:
             transfer_quantity = int(transfer_quantity)
             product = StoreItem.objects.get(id=product_id)
-        except StoreItem.DoesNotExist:
-            return Response(
-                {"error": "Product not found"}, status=status.HTTP_404_NOT_FOUND
-            )
-        except ValueError:
-            return Response(
-                {"error": "Invalid quantity"}, status=status.HTTP_400_BAD_REQUEST
-            )
+        except (StoreItem.DoesNotExist, ValueError):
+            return Response({"error": "Invalid productId or quantity"},
+                            status=status.HTTP_400_BAD_REQUEST)
 
         if product.status != "warehouse":
-            return Response(
-                {"error": "Product is not on warehouse"}, status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({"error": "Product is not on warehouse"},
+                            status=status.HTTP_400_BAD_REQUEST)
 
         if product.quantity < transfer_quantity:
-            return Response(
-                {"error": "Insufficient quantity on warehouse"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return Response({"error": "Insufficient quantity on warehouse"},
+                            status=status.HTTP_400_BAD_REQUEST)
 
         if product.quantity == transfer_quantity:
             product.status = "showcase"
@@ -213,23 +203,26 @@ class TransferToStoreView(APIView):
         else:
             product.quantity -= transfer_quantity
             product.save()
-            target_item = StoreItem.objects.create(
-                name=product.name,
-                category=product.category,
-                quantity=transfer_quantity,
-                price=product.price,
-                expire_date=product.expire_date,
-                status="showcase",
+
+            target_item, created = StoreItem.objects.get_or_create(
                 barcode=product.barcode,
-                warehouse_upload=product.warehouse_upload,
+                status="showcase",
+                defaults={
+                    "name": product.name,
+                    "category": product.category,
+                    "quantity": 0,
+                    "price": product.price,
+                    "expire_date": product.expire_date,
+                    "warehouse_upload": product.warehouse_upload,
+                },
             )
+            target_item.quantity += transfer_quantity
+            target_item.save()
 
         serializer = StoreItemSerializer(target_item)
         return Response(
-            {
-                "message": "Product transferred to showcase",
-                "store_item": serializer.data,
-            },
+            {"message": "Product transferred to showcase",
+             "store_item": serializer.data},
             status=status.HTTP_200_OK,
         )
 

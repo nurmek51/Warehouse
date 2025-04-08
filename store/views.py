@@ -229,7 +229,6 @@ class SellStoreItemView(APIView):
         product.save()
         return Response({"message": "Product sold"}, status=status.HTTP_200_OK)
 
-
 class ScanBarcodeView(APIView):
     permission_classes = [IsAuthenticated, IsManager]
 
@@ -241,29 +240,19 @@ class ScanBarcodeView(APIView):
     )
     def get(self, request, barcode):
         try:
-            product = StoreItem.objects.get(barcode=barcode)
+            product = (
+                StoreItem.objects
+                .filter(barcode=barcode, status="showcase")
+                .first()
+            )
+            if not product:
+                raise StoreItem.DoesNotExist
         except StoreItem.DoesNotExist:
-            return Response({"error": "Product not found"}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"error": "Product not found on showcase"},
+                            status=status.HTTP_404_NOT_FOUND)
 
-        data = {
-            "id": product.id,
-            "name": product.name,
-            "category": product.category,
-            "quantity": product.quantity,
-            "price": str(product.price) if product.price is not None else None,
-            "expire_date": product.expire_date,
-            "status": product.status,
-            "is_expired": product.is_expired,
-            "barcode": product.barcode,
-        }
-
-        if product.status == 'warehouse':
-            data["message"] = "Item on warehouse at the moment."
-        elif product.status == 'showcase':
-            data["message"] = "All data about product. Can sell."
-        elif product.status == 'sold':
-            data["message"] = "Product sold"
-        elif product.status == 'deleted':
-            data["message"] = "Product deleted"
+        serializer = StoreItemSerializer(product)
+        data = serializer.data
+        data["message"] = "All data about product. Can sell."
 
         return Response(data, status=status.HTTP_200_OK)
