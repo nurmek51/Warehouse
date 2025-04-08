@@ -4,8 +4,9 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from django.core.files.storage import default_storage
 from django.utils import timezone
-from datetime import timedelta
-from datetime import datetime
+from datetime import datetime, date, timedelta
+import unicodedata
+from dateutil import parser as date_parser
 import pandas as pd
 from .models import Upload
 from store.models import StoreItem
@@ -15,8 +16,10 @@ import logging
 from rest_framework.parsers import MultiPartParser
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
+import re
 
 logger = logging.getLogger(__name__)
+DASH_RE = re.compile(r"[\u2010-\u2015\u2212\uFE58\uFE63\uFF0D]")
 
 class FileUploadView(APIView):
     permission_classes = [IsAuthenticated]
@@ -26,58 +29,96 @@ class FileUploadView(APIView):
         security=[{"Bearer": []}],
         tags=["Warehouse"],
         operation_summary="Импорт товаров на склад",
-        consumes=["multipart/form-data"],
-        request_body=UploadFileSerializer,                 # ← новый сериализатор
-        responses={201: openapi.Response("Количество импортированных строк")},
+        request_body=UploadFileSerializer,
+        responses={
+            201: openapi.Response("Количество импортированных строк"),
+            400: "Ошибка валидации / формата файла",
+        },
     )
     def post(self, request):
+        def to_date(value) -> date | None:
+            """
+            Универсальный парсер даты:
+            • Timestamp / datetime / date
+            • Excel‑serial (число)
+            • Строки с любыми тире, слешами, точками: 2025‑04‑09, 09‑04‑2025, 4/9/25, 09.04.2025
+            """
+            if pd.isna(value):
+                return None
+
+            if isinstance(value, (pd.Timestamp, datetime)):
+                return value.date()
+            if isinstance(value, date):
+                return value
+
+            # Excel serial
+            if isinstance(value, (int, float)):
+                try:
+                    return (date(1899, 12, 30) + timedelta(days=int(value))).date()
+                except Exception:
+                    pass
+
+            cleaned = str(value).strip()
+            cleaned = unicodedata.normalize("NFKD", cleaned)
+            cleaned = DASH_RE.sub("-", cleaned)
+
+            known = [
+                "%Y-%m-%d", "%d-%m-%Y", "%m-%d-%Y",
+                "%Y/%m/%d", "%d/%m/%Y", "%m/%d/%Y",
+                "%d.%m.%Y", "%Y.%m.%d",
+            ]
+            for fmt in known:
+                try:
+                    return datetime.strptime(cleaned, fmt).date()
+                except ValueError:
+                    continue
+
+            try:
+                return date_parser.parse(cleaned, fuzzy=True, dayfirst=False).date()
+            except (ValueError, OverflowError):
+                raise ValueError(f"Unrecognised date format: {value!r}")
+
         file_obj = request.FILES.get("file")
         if not file_obj:
             return Response({"error": "No file provided"}, status=status.HTTP_400_BAD_REQUEST)
+
         file_path = default_storage.save(file_obj.name, file_obj)
-        file_name = file_obj.name.lower().strip()
         try:
-            if file_name.endswith('.csv'):
-                df = pd.read_csv(default_storage.path(file_path), encoding='utf-8-sig')
-            elif file_name.endswith(('.xls', '.xlsx')):
+            if file_obj.name.lower().endswith(".csv"):
+                df = pd.read_csv(default_storage.path(file_path), encoding="utf-8-sig")
+            elif file_obj.name.lower().endswith((".xls", ".xlsx")):
                 df = pd.read_excel(default_storage.path(file_path))
             else:
                 return Response({"error": "Unsupported file format"}, status=status.HTTP_400_BAD_REQUEST)
-        except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
-        if 'barcode' in df.columns:
-            df = df.drop(columns=['barcode'])
+        df = df.drop(columns=[c for c in ("barcode",) if c in df.columns])
 
         upload = Upload.objects.create(file_name=file_obj.name, uploaded_by=request.user)
-        if request.user.role != 'manager':
-            request.user.role = 'manager'
+        if request.user.role != "manager":
+            request.user.role = "manager"
             request.user.save()
-        count = 0
-        for index, row in df.iterrows():
+
+        imported = 0
+        for idx, row in df.iterrows():
             try:
-                name = row.get('name')
-                category = row.get('category')
-                quantity = int(row.get('quantity'))
-                price_val = row.get('price')
-                price = float(price_val) if price_val is not None else None
-                expire_date_str = row.get('expire_date')
-                expire_date = datetime.strptime(expire_date_str, '%Y-%m-%d').date() if expire_date_str else None
                 StoreItem.objects.create(
-                    name=name,
-                    category=category,
-                    quantity=quantity,
-                    price=price,
-                    expire_date=expire_date,
-                    status='warehouse',
+                    name=row.get("name"),
+                    category=row.get("category"),
+                    quantity=int(row.get("quantity")),
+                    price=float(row["price"]) if pd.notna(row.get("price")) else None,
+                    expire_date=to_date(row.get("expire_date")),
+                    status="warehouse",
                     barcode=None,
-                    warehouse_upload=upload
+                    warehouse_upload=upload,
                 )
-                count += 1
-            except Exception as e:
-                logger.error("Ошибка при импорте строки %s: %s", index, e)
+                imported += 1
+            except Exception as exc:
+                logger.error("Ошибка при импорте строки %s: %s", idx, exc)
                 continue
-        return Response({"imported": count}, status=status.HTTP_201_CREATED)
+
+        return Response({"imported": imported}, status=status.HTTP_201_CREATED)
 
 
 class UploadListView(APIView):
