@@ -6,10 +6,17 @@ from .models import StoreItem
 from .serializers import StoreItemSerializer
 from accounts.permissions import IsManager
 from decimal import Decimal
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
 
 class StoreItemListView(APIView):
     permission_classes = [IsAuthenticated, IsManager]
 
+    @swagger_auto_schema(
+        security=[{"Bearer": []}],
+        tags=["Store"],
+        operation_summary="Все товары на витрине",
+    )
     def get(self, request):
         items = StoreItem.objects.filter(status="showcase")
         serializer = StoreItemSerializer(items, many=True)
@@ -18,41 +25,75 @@ class StoreItemListView(APIView):
 class DiscountView(APIView):
     permission_classes = [IsAuthenticated, IsManager]
 
+    @swagger_auto_schema(
+        security=[{"Bearer": []}],
+        tags=["Store"],
+        operation_summary="Применить скидку",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=["storeItemId", "discountPercentage"],
+            properties={
+                "storeItemId": openapi.Schema(type=openapi.TYPE_INTEGER),
+                "discountPercentage": openapi.Schema(type=openapi.TYPE_NUMBER),
+            },
+        ),
+    )
     def post(self, request):
         store_item_id = request.data.get('storeItemId')
         discount_percentage = request.data.get('discountPercentage')
+
         if not store_item_id or discount_percentage is None:
             return Response(
                 {"error": "storeItemId and discountPercentage are required"},
                 status=status.HTTP_400_BAD_REQUEST
             )
+
         try:
             item = StoreItem.objects.get(id=store_item_id)
         except StoreItem.DoesNotExist:
-            return Response(
-                {"error": "Item not found"},
-                status=status.HTTP_404_NOT_FOUND
-            )
+            return Response({"error": "Item not found"}, status=status.HTTP_404_NOT_FOUND)
+
         if item.status != "showcase":
             return Response(
                 {"error": "Discount can only be applied to items on showcase."},
                 status=status.HTTP_400_BAD_REQUEST
             )
+
         if item.price is None:
-            return Response(
-                {"error": "Item price is not set"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        item.price = item.price * (Decimal('1') - Decimal(discount_percentage) / Decimal('100'))
+            return Response({"error": "Item price is not set"}, status=status.HTTP_400_BAD_REQUEST)
+
+        old_price = item.price
+        try:
+            discount_decimal = Decimal(discount_percentage)
+        except Exception:
+            return Response({"error": "Invalid discountPercentage"}, status=status.HTTP_400_BAD_REQUEST)
+
+        new_price = old_price * (Decimal('1') - discount_decimal / Decimal('100'))
+        item.price = new_price
         item.save()
+
         return Response(
-            {"message": "Discount applied"},
+            {
+                "message": "Discount applied",
+                "old_price": str(old_price),
+                "new_price": str(new_price)
+            },
             status=status.HTTP_200_OK
         )
 
 class RemoveExpiredView(APIView):
     permission_classes = [IsAuthenticated, IsManager]
 
+    @swagger_auto_schema(
+        security=[{"Bearer": []}],
+        tags=["Store"],
+        operation_summary="Удалить просроченный товар",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=["productId"],
+            properties={"productId": openapi.Schema(type=openapi.TYPE_INTEGER)},
+        )
+    )
     def post(self, request):
         product_id = request.data.get('productId')
         if not product_id:
@@ -73,6 +114,19 @@ class RemoveExpiredView(APIView):
 class TransferToWarehouseView(APIView):
     permission_classes = [IsAuthenticated, IsManager]
 
+    @swagger_auto_schema(
+        security=[{"Bearer": []}],
+        tags=["Store"],
+        operation_summary="Вернуть товар на склад",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=["productId", "quantity"],
+            properties={
+                "productId": openapi.Schema(type=openapi.TYPE_INTEGER),
+                "quantity": openapi.Schema(type=openapi.TYPE_INTEGER),
+            },
+        )
+    )
     def post(self, request):
         product_id = request.data.get('productId')
         transfer_quantity = request.data.get('quantity')
@@ -136,6 +190,20 @@ class TransferToWarehouseView(APIView):
 class SellStoreItemView(APIView):
     permission_classes = [IsAuthenticated, IsManager]
 
+    @swagger_auto_schema(
+        security=[{"Bearer": []}],
+        tags=["Store"],
+        operation_summary="Продать товар",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=["productId"],
+            properties={
+                "productId": openapi.Schema(type=openapi.TYPE_INTEGER),
+                "quantity": openapi.Schema(type=openapi.TYPE_INTEGER, default=1),
+            },
+        )
+
+    )
     def post(self, request):
         product_id = request.data.get('productId')
         sell_quantity = request.data.get('quantity', 1)
@@ -165,6 +233,12 @@ class SellStoreItemView(APIView):
 class ScanBarcodeView(APIView):
     permission_classes = [IsAuthenticated, IsManager]
 
+    @swagger_auto_schema(
+        security=[{"Bearer": []}],
+        tags=["Store"],
+        operation_summary="Поиск товара по штрих‑коду",
+        responses={200: "Информация о товаре", 404: "Not found"},
+    )
     def get(self, request, barcode):
         try:
             product = StoreItem.objects.get(barcode=barcode)

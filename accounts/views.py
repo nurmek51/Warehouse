@@ -7,8 +7,15 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from .models import User
 from django.core.mail import send_mail
 import random
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
 
 class RegisterView(APIView):
+    @swagger_auto_schema(
+        operation_summary="Регистрация пользователя",
+        request_body=RegisterSerializer,
+        responses={201: openapi.Response("OK")},
+    )
     def post(self, request):
         serializer = RegisterSerializer(data=request.data)
         if serializer.is_valid():
@@ -24,6 +31,11 @@ class RegisterView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class VerifyView(APIView):
+    @swagger_auto_schema(
+        operation_summary="Подтверждение e‑mail",
+        request_body=VerifySerializer,
+        responses={200: openapi.Response("OK"), 400: "Invalid code"},
+    )
     def post(self, request):
         serializer = VerifySerializer(data=request.data)
         if serializer.is_valid():
@@ -40,6 +52,11 @@ class VerifyView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class LoginView(APIView):
+    @swagger_auto_schema(
+        operation_summary="JWT‑авторизация",
+        request_body=LoginSerializer,
+        responses={200: openapi.Response("accesstoken")},
+    )
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
         if serializer.is_valid():
@@ -57,6 +74,15 @@ class LoginView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class ResendVerificationView(APIView):
+    @swagger_auto_schema(
+        tags=["Auth"],
+        operation_summary="Повторная отправка кода",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=["email"],
+            properties={"email": openapi.Schema(type=openapi.TYPE_STRING, format="email")},
+        ),
+    )
     def post(self, request):
         email = request.data.get('email')
         if not email:
@@ -79,6 +105,15 @@ class ResendVerificationView(APIView):
         return Response({"message": "Verification email resent"}, status=status.HTTP_200_OK)
 
 class ForgotPasswordView(APIView):
+    @swagger_auto_schema(
+        tags=["Auth"],
+        operation_summary="Запрос кода сброса пароля",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=["email"],
+            properties={"email": openapi.Schema(type=openapi.TYPE_STRING, format="email")},
+        )
+    )
     def post(self, request):
         email = request.data.get('email')
         if not email:
@@ -100,6 +135,19 @@ class ForgotPasswordView(APIView):
         return Response({"message": "Password reset code sent"}, status=status.HTTP_200_OK)
 
 class ResetPasswordView(APIView):
+    @swagger_auto_schema(
+        tags=["Auth"],
+        operation_summary="Сброс пароля",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=["email", "reset_code", "new_password"],
+            properties={
+                "email": openapi.Schema(type=openapi.TYPE_STRING, format="email"),
+                "reset_code": openapi.Schema(type=openapi.TYPE_STRING),
+                "new_password": openapi.Schema(type=openapi.TYPE_STRING, format="password"),
+            },
+        ),
+    )
     def post(self, request):
         email = request.data.get('email')
         reset_code = request.data.get('reset_code')
