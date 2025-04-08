@@ -12,6 +12,7 @@ from drf_yasg import openapi
 
 class RegisterView(APIView):
     @swagger_auto_schema(
+        tags=["Auth"],
         operation_summary="Регистрация пользователя",
         request_body=RegisterSerializer,
         responses={201: openapi.Response("OK")},
@@ -32,6 +33,7 @@ class RegisterView(APIView):
 
 class VerifyView(APIView):
     @swagger_auto_schema(
+        tags=["Auth"],
         operation_summary="Подтверждение e‑mail",
         request_body=VerifySerializer,
         responses={200: openapi.Response("OK"), 400: "Invalid code"},
@@ -53,6 +55,7 @@ class VerifyView(APIView):
 
 class LoginView(APIView):
     @swagger_auto_schema(
+        tags=["Auth"],
         operation_summary="JWT‑авторизация",
         request_body=LoginSerializer,
         responses={200: openapi.Response("accesstoken")},
