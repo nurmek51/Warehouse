@@ -6,3 +6,8 @@ class UploadSerializer(serializers.ModelSerializer):
         model = Upload
         fields = '__all__'
 
+class UploadFileSerializer(serializers.Serializer):
+    file = serializers.FileField(
+        required=True,
+        help_text="CSV, XLS или XLSX‑файл с товарами"
+    )

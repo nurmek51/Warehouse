@@ -9,7 +9,7 @@ from datetime import datetime
 import pandas as pd
 from .models import Upload
 from store.models import StoreItem
-from .serializers import UploadSerializer
+from .serializers import UploadSerializer, UploadFileSerializer
 from store.serializers import StoreItemSerializer
 import logging
 from rest_framework.parsers import MultiPartParser
@@ -20,18 +20,18 @@ logger = logging.getLogger(__name__)
 
 class FileUploadView(APIView):
     permission_classes = [IsAuthenticated]
-    parser_classes = [MultiPartParser]
+    parser_classes     = [MultiPartParser]
 
     @swagger_auto_schema(
         security=[{"Bearer": []}],
         tags=["Warehouse"],
         operation_summary="Импорт товаров на склад",
-        request_body=UploadSerializer,
         consumes=["multipart/form-data"],
+        request_body=UploadFileSerializer,                 # ← новый сериализатор
         responses={201: openapi.Response("Количество импортированных строк")},
     )
     def post(self, request):
-        file_obj = request.FILES.get('file')
+        file_obj = request.FILES.get("file")
         if not file_obj:
             return Response({"error": "No file provided"}, status=status.HTTP_400_BAD_REQUEST)
         file_path = default_storage.save(file_obj.name, file_obj)
