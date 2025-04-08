@@ -9,7 +9,10 @@ def forecast_by_category():
     categories = StoreItem.objects.exclude(category__isnull=True).values_list('category', flat=True).distinct()
     results = {}
     for cat in categories:
-        stock_data = StoreItem.objects.filter(category=cat, status='warehouse').aggregate(total=Sum('quantity'))
+        stock_data = StoreItem.objects.filter(
+            category=cat,
+            status__in=["warehouse", "showcase"]
+        ).aggregate(total=Sum("quantity"))
         current_stock = stock_data.get('total') or 0
 
         start_date = timezone.now().date() - timedelta(days=30)

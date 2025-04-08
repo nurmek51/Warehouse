@@ -8,6 +8,7 @@ from accounts.permissions import IsManager
 from decimal import Decimal
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
+from django.utils import timezone
 
 class StoreItemListView(APIView):
     permission_classes = [IsAuthenticated, IsManager]
@@ -208,28 +209,46 @@ class SellStoreItemView(APIView):
 
     )
     def post(self, request):
-        product_id = request.data.get('productId')
-        sell_quantity = request.data.get('quantity', 1)
+        product_id     = request.data.get("productId")
+        sell_quantity  = request.data.get("quantity", 1)
         if not product_id:
-            return Response({"error": "productId is required"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": "productId is required"},
+                            status=status.HTTP_400_BAD_REQUEST)
         try:
             sell_quantity = int(sell_quantity)
             product = StoreItem.objects.get(id=product_id)
-        except StoreItem.DoesNotExist:
-            return Response({"error": "Product not found"}, status=status.HTTP_404_NOT_FOUND)
-        except ValueError:
-            return Response({"error": "Invalid quantity"}, status=status.HTTP_400_BAD_REQUEST)
+        except (StoreItem.DoesNotExist, ValueError):
+            return Response({"error": "Invalid productId or quantity"},
+                            status=status.HTTP_400_BAD_REQUEST)
 
-        if product.status != 'showcase':
-            return Response({"error": "Product is not on store"}, status=status.HTTP_400_BAD_REQUEST)
-
+        if product.status != "showcase":
+            return Response({"error": "Product is not on store"},
+                            status=status.HTTP_400_BAD_REQUEST)
         if product.quantity < sell_quantity:
-            return Response({"error": "Insufficient quantity on store"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": "Insufficient quantity on store"},
+                            status=status.HTTP_400_BAD_REQUEST)
 
         product.quantity -= sell_quantity
         if product.quantity == 0:
-            product.status = 'deleted'
+            product.status = "deleted"
         product.save()
+
+        # создаём / увеличиваем sold‑запись
+        sold_item, _ = StoreItem.objects.get_or_create(
+            barcode=product.barcode,
+            status="sold",
+            defaults={
+                "name":      product.name,
+                "category":  product.category,
+                "quantity":  0,
+                "price":     product.price,
+                "expire_date": product.expire_date,
+                "added_at":  timezone.now(),
+            },
+        )
+        sold_item.quantity += sell_quantity
+        sold_item.save()
+
         return Response({"message": "Product sold"}, status=status.HTTP_200_OK)
 
 class ScanBarcodeView(APIView):
